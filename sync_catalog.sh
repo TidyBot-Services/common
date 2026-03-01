@@ -4,10 +4,10 @@
 
 set -euo pipefail
 
-REPO_DIR="/home/tidybot/tidybot_army/backend_wishlist"
+REPO_DIR="/home/tidybot/tidybot_uni/backend_wishlist"
 CATALOG="$REPO_DIR/catalog.json"
-SERVICES_DIR="/home/tidybot/tidybot_army/tidybot-agent-server/service_clients"
-LOG="/home/tidybot/tidybot_army/sync_catalog.log"
+SERVICES_DIR="/home/tidybot/tidybot_uni/agent_server/service_clients"
+LOG="/home/tidybot/tidybot_uni/sync_catalog.log"
 
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" >> "$LOG"; }
 

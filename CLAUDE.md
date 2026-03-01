@@ -1,30 +1,31 @@
-# Tidybot Army
+# Tidybot Uni
 
-Robot control project for a mobile manipulator: a Franka Panda arm mounted on a Tidybot base, running on a mini PC. An AI agent server (`tidybot-agent-server`) provides a unified API to control both the arm and base.
+Robot control project for a mobile manipulator: a Franka Panda arm mounted on a Tidybot base, running on a mini PC. An AI agent server (`agent_server`) provides a unified API to control both the arm and base.
 
 ## Project Structure
 
 - `start_robot.sh` — **Simplified startup script** (starts all services, Ctrl+C to stop)
-- `tidybot2/` — Tidybot mobile base code, IK solver, teleop, gamepad control, policy server, episode storage
-- `franka_interact/` — Franka Panda arm client-server interface (ZMQ-based)
-  - ROS-free, 1 kHz control loop
-  - Supports rewind (trajectory reversal) and joint unlock
-  - **Auto-hold**: Active position holding instead of gravity compensation (see `franka_interact/franka_server/CLAUDE.md`)
-  - `franka_server/start_server.sh` — Starts the arm communication server
-- `base_server/` — Mobile base RPC server
-- `gripper_server/` — Robotiq gripper control server (ZMQ-based)
-- `camera_server/` — Intel RealSense camera streaming server (see `camera_server/CLAUDE.md`)
-- `mocap_server/` — Motion capture server (OptiTrack Motive via NatNet)
-- `tidybot-agent-server/` — FastAPI hardware server for AI agents (see `tidybot-agent-server/CLAUDE.md`)
+- `agent_server/` — FastAPI hardware server for AI agents (see `agent_server/CLAUDE.md`)
   - Unified API for arm + base + gripper + mocap commands, cameras
   - Lease system, safety envelope, trajectory recording, reset via reversal
   - Code Execution API with `robot_sdk` (recommended control method)
   - `service_clients/` — Downloaded client SDKs for backend ML services
   - Web dashboard at `/services/dashboard`
+- `hardware/` — Hardware service repos with standard symlinks
+  - `arm_franka_service/` — Franka Panda arm client-server (ZMQ-based, ROS-free, 1 kHz)
+  - `gripper_robotiq_service/` — Robotiq gripper control (ZMQ-based)
+  - `base_tidybot_service/` — Tidybot mobile base RPC server
+  - `camera_realsense_service/` — Intel RealSense camera streaming (WebSocket)
+  - `arm_server` → `arm_franka_service` (standard interface symlink)
+  - `gripper_server` → `gripper_robotiq_service`
+  - `base_server` → `base_tidybot_service`
+  - `camera_server` → `camera_realsense_service`
+- `sim/` — Simulation (MuJoCo/robosuite/robocasa)
+  - `sim_server/` — Sim server with protocol bridges for arm, gripper, camera
 - `system_logger/` — Trajectory recording and rewind orchestration
-- `backend_wishlist/` — Shared git repo with `wishlist.json` and `catalog.json` for backend ML service requests
-- `pick_obj/` — Pick-and-place skill scripts (visual servoing, EE calibration)
-- `sync_catalog.sh` — Cron script (every 30 min) that pulls `catalog.json` and downloads service client SDKs
+- `common/` — Shared utilities
+- `services/` — GPU/ML services (YOLO, SAM2, stereo, grasp generation, etc.)
+- `skills/` — Robot skill scripts
 
 ## Quick Start
 
@@ -42,14 +43,13 @@ Recommended approach for running with hardware. Separates backend services from 
 
 **Terminal 1 — Start robot services:**
 ```bash
-cd ~/tidybot_army
+cd ~/tidybot_uni
 ./start_robot.sh --no-controller
 ```
 
 **Terminal 2 — Start API server:**
 ```bash
-cd ~/tidybot_army/tidybot-agent-server
-source ~/tidybot_army/franka_interact/.venv/bin/activate
+cd ~/tidybot_uni/agent_server
 python3 server.py --no-service-manager
 ```
 
@@ -67,8 +67,7 @@ The API server is now available at http://localhost:8080
 For development without `start_robot.sh`, run the agent server with the service manager enabled:
 
 ```bash
-cd ~/tidybot_army/tidybot-agent-server
-source ~/tidybot_army/franka_interact/.venv/bin/activate
+cd ~/tidybot_uni/agent_server
 python3 server.py
 ```
 
@@ -90,7 +89,7 @@ The rewind system enables error recovery by replaying the robot's trajectory in 
 - **Recording:** StateAggregator records unified waypoints at 10 Hz (threshold-filtered)
 - **Execution:** RewindOrchestrator groups waypoints into chunks, interpolates arm (cubic) and base (linear + Ruckig) at 50 Hz
 - **SDK:** Available in code execution as `from robot_sdk import rewind`
-- **API:** Full REST API at `/rewind/*` (see `tidybot-agent-server/CLAUDE.md`)
+- **API:** Full REST API at `/rewind/*` (see `agent_server/CLAUDE.md`)
 - **Config:** Tune `chunk_size`, `chunk_duration` online via `PUT /rewind/config`
 
 ### Key Files
@@ -109,7 +108,7 @@ The rewind system enables error recovery by replaying the robot's trajectory in 
 If the arm enters error state (collision, etc.):
 
 ```bash
-cd ~/tidybot_army/franka_interact/franka_server
+cd ~/tidybot_uni/hardware/arm_server/franka_server
 ./recover.sh --ip 172.16.0.2
 ```
 
@@ -135,14 +134,8 @@ curl -X POST localhost:8080/rewind/percentage \
 OpenClaw is an AI agent platform that can control the robot. Integration uses auto-generated documentation endpoints — the agent reads the system guide and SDK reference, then writes direct HTTP calls.
 
 ```
-OpenClaw Agent → GET /docs/guide + /code/sdk → Writes requests.get()/post() → tidybot-agent-server → Hardware
+OpenClaw Agent → GET /docs/guide + /code/sdk → Writes requests.get()/post() → agent_server → Hardware
 ```
-
-## Virtual Environments
-
-| Path | Purpose |
-|------|---------|
-| `franka_interact/.venv/` | Franka server, agent server |
 
 ## Environment Variables
 
@@ -151,7 +144,7 @@ OpenClaw Agent → GET /docs/guide + /code/sdk → Writes requests.get()/post() 
 | `FRANKA_DESK_USERNAME` | Franka Desk login username |
 | `FRANKA_DESK_PASSWORD` | Franka Desk login password |
 | `FRANKA_IP` | Robot IP (default: 172.16.0.2) |
-| `ROBOT_API_KEY` | API key for agent server auth — set to an admin key from `tidybot-agent-server/api_keys.json`. Forwarded to SDK subprocesses. Auth disabled when unset. |
+| `ROBOT_API_KEY` | API key for agent server auth — set to an admin key from `agent_server/api_keys.json`. Forwarded to SDK subprocesses. Auth disabled when unset. |
 
 ## Ports
 

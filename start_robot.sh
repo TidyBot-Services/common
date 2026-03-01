@@ -89,8 +89,7 @@ cleanup() {
 
     # Lock the robot, no longer needed
     # info "Locking robot..."
-    # cd "$SCRIPT_DIR/franka_interact/franka_server"
-    # source "$SCRIPT_DIR/franka_interact/.venv/bin/activate"
+    # cd "$SCRIPT_DIR/hardware/arm_server/franka_server"
     # ./lock_unlock.sh --lock 2>/dev/null || true
 
     info "Shutdown complete"
@@ -117,8 +116,7 @@ fi
 # 1. Unlock robot and activate FCI (optional)
 if [ "$NO_UNLOCK" = false ]; then
     info "Unlocking robot and activating FCI..."
-    cd "$SCRIPT_DIR/franka_interact/franka_server"
-    source "$SCRIPT_DIR/franka_interact/.venv/bin/activate"
+    cd "$SCRIPT_DIR/hardware/arm_server/franka_server"
     ./lock_unlock.sh --unlock --fci --persistent --wait &
     UNLOCK_PID=$!
     info "Unlock process started (PID $UNLOCK_PID)"
@@ -129,7 +127,7 @@ fi
 
 # 2. Start base server
 info "Starting base server..."
-cd "$SCRIPT_DIR/base_server"
+cd "$SCRIPT_DIR/hardware/base_server"
 python3 -m base_server.server &
 BASE_PID=$!
 info "Base server started (PID $BASE_PID)"
@@ -138,9 +136,8 @@ sleep 2
 # 3. Start gripper server (optional)
 if [ "$NO_GRIPPER" = false ]; then
     info "Starting gripper server..."
-    cd "$SCRIPT_DIR/gripper_server"
-    source "$SCRIPT_DIR/franka_interact/.venv/bin/activate"
-    python -m gripper_server.server &
+    cd "$SCRIPT_DIR/hardware/gripper_server"
+    python3 -m gripper_server.server &
     GRIPPER_PID=$!
     info "Gripper server started (PID $GRIPPER_PID)"
     sleep 2
@@ -151,18 +148,17 @@ fi
 # 4. Start camera server (optional)
 if [ "$NO_CAMERA" = false ]; then
     info "Starting camera server..."
-    cd "$SCRIPT_DIR/camera_server"
-    source "$SCRIPT_DIR/franka_interact/.venv/bin/activate"
+    cd "$SCRIPT_DIR/hardware/camera_server"
     if [ -n "$CAMERA_CONFIG" ]; then
         # Convert to absolute path if relative
         if [[ "$CAMERA_CONFIG" != /* ]]; then
             CAMERA_CONFIG="$SCRIPT_DIR/$CAMERA_CONFIG"
         fi
-        python -m camera_server.server --config "$CAMERA_CONFIG" &
-    elif [ -f "$SCRIPT_DIR/camera_server/cameras.yaml" ]; then
-        python -m camera_server.server --config "$SCRIPT_DIR/camera_server/cameras.yaml" &
+        python3 -m camera_server.server --config "$CAMERA_CONFIG" &
+    elif [ -f "$SCRIPT_DIR/hardware/camera_server/cameras.yaml" ]; then
+        python3 -m camera_server.server --config "$SCRIPT_DIR/hardware/camera_server/cameras.yaml" &
     else
-        python -m camera_server.server &
+        python3 -m camera_server.server &
     fi
     CAMERA_PID=$!
     info "Camera server started (PID $CAMERA_PID)"
@@ -173,8 +169,7 @@ fi
 
 # 5. Start franka server
 info "Starting franka server..."
-cd "$SCRIPT_DIR/franka_interact/franka_server"
-source "$SCRIPT_DIR/franka_interact/.venv/bin/activate"
+cd "$SCRIPT_DIR/hardware/arm_server/franka_server"
 ./start_server.sh &
 FRANKA_PID=$!
 info "Franka server started (PID $FRANKA_PID)"
@@ -184,7 +179,6 @@ sleep 3
 if [ "$NO_CONTROLLER" = false ]; then
     info "Starting whole-body controller..."
     cd "$SCRIPT_DIR/tidybot2"
-    source "$SCRIPT_DIR/franka_interact/.venv/bin/activate"
     python3 -u qp_arm_only.py &
     CONTROLLER_PID=$!
     info "Controller started (PID $CONTROLLER_PID)"

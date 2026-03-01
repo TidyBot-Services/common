@@ -1,5 +1,5 @@
 #!/bin/bash
-# Creates symlinks in the parent directory (~/tidybot_army/) pointing to common/ files.
+# Creates symlinks in the parent directory (~/tidybot_uni/) pointing to common/ files.
 # Run from anywhere — the script resolves its own location.
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"

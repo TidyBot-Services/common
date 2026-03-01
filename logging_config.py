@@ -1,9 +1,9 @@
-"""Shared logging configuration for all TidyBot Army components.
+"""Shared logging configuration for all TidyBot components.
 
 Each server entry point calls setup_logging("component_name") at startup.
 Library modules just use logging.getLogger(__name__) and inherit handlers.
 
-Log files are written to ~/tidybot_army/logs/ with daily rotation (30 days).
+Log files are written to ~/tidybot_uni/logs/ with daily rotation (30 days).
 """
 
 import logging
