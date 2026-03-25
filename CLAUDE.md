@@ -19,10 +19,11 @@ Robot control project for a mobile manipulator: a Franka Panda arm mounted on a 
   - `gripper_server` → `gripper_robotiq_service`
   - `base_server` → `base_tidybot_service`
   - `camera_server` → `camera_realsense_service`
-- `sim/` — MuJoCo simulator (see "Running the Simulator" below)
-  - `sim_server/` — Physics loop + protocol bridges (arm, base, gripper, camera)
-  - `robocasa/`, `robosuite/` — Sim dependencies (cloned by `sim/setup.sh`)
-  - `tidybot_assets/` — TidyVerse robot meshes, XML, controllers
+- `sims/` — Simulators (same API as hardware)
+  - `maniskill/` — ManiSkill3/SAPIEN simulator
+  - `robocasa/` — RoboCasa/MuJoCo simulator
+  - `bridges/maniskill/` — ManiSkill protocol bridges (arm_franka, base_tidybot, gripper_robotiq, camera_realsense)
+  - `bridges/robocasa/` — RoboCasa protocol bridges (same structure)
 - `system_logger/` — Trajectory recording and rewind orchestration
 - `common/` — Shared utilities
 - `services/` — GPU/ML services (YOLO, SAM2, stereo, grasp generation, etc.)
@@ -87,11 +88,18 @@ This makes it easy to toggle individual services without restarting everything. 
 
 The sim replaces real hardware with MuJoCo physics. The sim server exposes the same protocol bridges (ZMQ, RPC, WebSocket) on the same ports, so the agent_server connects transparently — **the API is identical**.
 
-**Terminal 1 — Sim server:**
+**Terminal 1 — Robocasa sim server:**
 ```bash
-cd ~/tidybot_uni/sim
+cd ~/tidybot_uni/sims/robocasa
 python3 -m sim_server            # with MuJoCo viewer
 python3 -m sim_server --no-gui   # headless
+```
+
+**Or ManiSkill sim server:**
+```bash
+cd ~/tidybot_uni/sims/maniskill
+python3 -m maniskill_server --gui   # with viewer
+python3 -m maniskill_server         # headless
 ```
 
 **Terminal 2 — Agent server:**
@@ -124,7 +132,7 @@ API is then at `http://localhost:8080` — same endpoints, SDK, and lease system
 | Gripper | ZMQ (JSON) | 5570, 5571 |
 | Camera | WebSocket (JPEG) | 5580 |
 
-**First-time setup:** `cd sim && ./setup.sh` (clones robocasa/robosuite, installs deps, patches TidyVerse assets). Kitchen assets (~10 GB) are downloaded separately during setup.
+**First-time setup (Robocasa):** `cd robocasa_sim && ./setup.sh` (clones robocasa/robosuite, installs deps, patches TidyVerse assets). Kitchen assets (~10 GB) are downloaded separately during setup.
 
 **Env vars:** `PYTHONUNBUFFERED=1` for real-time logs. If system python lacks packages: `PYTHONPATH="$HOME/.local/lib/python3.10/site-packages:$PYTHONPATH"`.
 
