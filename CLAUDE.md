@@ -1,215 +1,155 @@
-# Tidybot Uni
+# Tidybot Universe — Project Instructions
 
-Robot control project for a mobile manipulator: a Franka Panda arm mounted on a Tidybot base, running on a mini PC. An AI agent server (`agent_server`) provides a unified API to control both the arm and base.
+An end-to-end platform that unifies simulation, real hardware, and multi-agent AI into a single autonomous mobile-manipulator development loop.
 
-## Project Structure
+## 📍 Read this file, then `docs/ai-memory/active-context.md`
 
-- `start_robot.sh` — **Simplified startup script** (starts all services, Ctrl+C to stop)
-- `agent_server/` — FastAPI hardware server for AI agents (see `agent_server/CLAUDE.md`)
-  - Unified API for arm + base + gripper + mocap commands, cameras
-  - Lease system, safety envelope, trajectory recording, reset via reversal
-  - Code Execution API with `robot_sdk` (recommended control method)
-  - Web dashboard at `/services/dashboard`
-- `hardware/` — Hardware service repos with standard symlinks
-  - `arm_franka_service/` — Franka Panda arm client-server (ZMQ-based, ROS-free, 1 kHz)
-  - `gripper_robotiq_service/` — Robotiq gripper control (ZMQ-based)
-  - `base_tidybot_service/` — Tidybot mobile base RPC server
-  - `camera_realsense_service/` — Intel RealSense camera streaming (WebSocket)
-  - `arm_server` → `arm_franka_service` (standard interface symlink)
-  - `gripper_server` → `gripper_robotiq_service`
-  - `base_server` → `base_tidybot_service`
-  - `camera_server` → `camera_realsense_service`
-- `sims/` — Simulators (same API as hardware)
-  - `maniskill/` — ManiSkill3/SAPIEN simulator
-  - `robocasa/` — RoboCasa/MuJoCo simulator
-  - `bridges/maniskill/` — ManiSkill protocol bridges (arm_franka, base_tidybot, gripper_robotiq, camera_realsense)
-  - `bridges/robocasa/` — RoboCasa protocol bridges (same structure)
-- `system_logger/` — Trajectory recording and rewind orchestration
-- `common/` — Shared utilities
-- `services/` — GPU/ML services (YOLO, SAM2, stereo, grasp generation, etc.)
-- `skills/` — Robot skill scripts
+**This file stays short.** Project history, decisions, module docs, and lessons live in `docs/ai-memory/` — a structured AI-memory tree separate from this stable rules file.
 
-## Quick Start
+```
+docs/ai-memory/
+├── active-context.md       ← read FIRST every session
+├── progress.md             ← milestones / known issues
+├── project-brief.md        ← what + why + architecture
+├── decisions/              ← ADR-style decision records
+├── modules/                ← per-module reference
+└── patterns/               ← cross-module lessons
+```
 
-### Prerequisites
+## Startup Routine
 
-**Set Franka credentials** (add to `~/.bashrc` or run before starting):
+When starting work on this repo:
+
+1. Read this file (rules + commands).
+2. Read `docs/ai-memory/active-context.md` (current focus).
+3. If touching a specific component → read the relevant `docs/ai-memory/modules/<name>.md`.
+4. If asking "why is X this way" → check `docs/ai-memory/decisions/`.
+
+## Memory Policy
+
+- **This file stays short** (target <150 lines). No work logs here.
+- **At end of substantial work**, use the closing prompt below to update memory.
+- **Decisions are immutable** once shipped; supersede with new ADRs, don't edit old.
+- **Personal observations** (model quirks, debugging style preferences) live in private Claude Code memory, not here.
+
+End-of-session prompt:
+
+```
+请收尾并更新项目记忆:
+1. 更新 docs/ai-memory/active-context.md
+2. 完成的 milestone 加进 docs/ai-memory/progress.md
+3. 新增重要决策 → docs/ai-memory/decisions/NNNN-<title>.md
+4. 个人观察 → 私有 memory(~/.claude/...),不要写进 CLAUDE.md
+```
+
+## Engineering Rules
+
+- Preserve the shared SDK abstraction (sim ≡ hardware API surface). See `decisions/0001-shared-hardware-sdk.md`.
+- Don't bypass safety, lease, workspace-boundary, reset, or e-stop logic.
+- Skills are small, testable, with clear deps. Higher-level skills depend on lower-level interfaces, not internals. See `decisions/0002-skill-dag-decomposition.md`.
+- Update tests / validation when changing behavior.
+- Push commits atomically when fixes span repos (see `patterns/pathfinder-subdir-shadow.md` for why partial deploys break things).
+
+## Repository Layout
+
+```
+agent_server/                 # FastAPI hardware server (lease, code exec, recording)
+skill-agent-setup/claude-code/# Orchestrator + harnesses
+sims/maniskill/               # ManiSkill server (cuRobo + bridges)
+sims/robocasa_tasks/          # RoboCasa task definitions
+sims/maniskill_tidyverse/     # Kitchen scene + URDF + cuRobo config
+service-agent-setup/          # Deploy-agent daemon (port 9000)
+services_wishlist/            # Service catalog + wishlist coordination
+hardware/                     # Real-hardware service clients
+eval/                         # Evaluation runs, benchmark results
+docs/ai-memory/               # ← shared AI memory (this directory)
+```
+
+See `docs/ai-memory/project-brief.md` for full architecture and contribution overview.
+
+## Common Commands
+
+### One-time setup
 ```bash
-export FRANKA_DESK_USERNAME=your_username
-export FRANKA_DESK_PASSWORD=your_password
+bash setup.sh <env_name> [<workspace_dir>]
 ```
 
-### Running the Robot (Two-Terminal)
-
-Recommended approach for running with hardware. Separates backend services from the API server.
-
-**Terminal 1 — Start robot services:**
+### Run sim (ManiSkill, Counter-To-Cab-v0 example)
 ```bash
-cd ~/tidybot_uni
-./start_robot.sh --no-controller
+cd sims/maniskill
+conda run -n maniskill --no-capture-output \
+  env LD_PRELOAD=$HOME/miniconda3/envs/maniskill/lib/libstdc++.so.6 \
+       DISPLAY=:0 PYTHONUNBUFFERED=1 \
+       CUROBO_SERVICE_URL=http://localhost:7000 \
+       GRASPGEN_SERVER_URL=http://10.102.245.84:8006 \
+       python3 -m maniskill_server --task RoboCasa-Pn-P-Counter-To-Cab-v0 --gui
 ```
 
-**Terminal 2 — Start API server:**
+### Run agent server (sim or hw)
 ```bash
-cd ~/tidybot_uni/agent_server
-python3 server.py --no-service-manager
+cd agent_server
+conda run -n maniskill --no-capture-output \
+  env LD_PRELOAD=$HOME/miniconda3/envs/maniskill/lib/libstdc++.so.6 \
+       PYTHONUNBUFFERED=1 \
+       python3 server.py --no-service-manager
 ```
+API at `http://localhost:8080`.
 
-The API server is now available at http://localhost:8080
-
-**start_robot.sh options:**
-- `--no-unlock` — Skip unlock step (if robot is already unlocked)
-- `--no-gripper` — Skip starting the gripper server
-- `--no-camera` — Skip starting the camera server
-- `--no-controller` — Skip whole-body controller (**always required** — `qp_arm_only.py` no longer exists)
-- `--camera-config <path>` — Use a custom camera configuration file (YAML/JSON)
-
-### Development Mode (Single Terminal)
-
-For development without `start_robot.sh`, run the agent server with the service manager enabled:
-
+### Run orchestrator (claude-sdk default)
 ```bash
-cd ~/tidybot_uni/agent_server
-python3 server.py
+cd skill-agent-setup/claude-code
+python3 agent_orchestrator.py --graph graphs/<name>
 ```
 
-Then start/stop individual services via the dashboard at http://localhost:8080/services/dashboard or via API:
-
+### Run orchestrator with openclaw harness
 ```bash
-curl -X POST localhost:8080/services/unlock/start
-curl -X POST localhost:8080/services/franka_server/start
-curl -X POST localhost:8080/services/gripper_server/start
-# etc.
+cd skill-agent-setup/claude-code
+~/bin/with-litellm.sh python3 agent_orchestrator.py \
+    --graph graphs/<name> --harness openclaw [--autonomous]
 ```
+Setup details: `skill-agent-setup/claude-code/CLAUDE-OPENCLAW-HARNESS.md`.
 
-This makes it easy to toggle individual services without restarting everything. For dry-run mode (no hardware): `python3 server.py --dry-run`
-
-### Running the Simulator
-
-The sim replaces real hardware with MuJoCo physics. The sim server exposes the same protocol bridges (ZMQ, RPC, WebSocket) on the same ports, so the agent_server connects transparently — **the API is identical**.
-
-**Terminal 1 — Robocasa sim server:**
+### Verify deploy-agent pipeline (sanity check)
 ```bash
-cd ~/tidybot_uni/sims/robocasa
-python3 -m sim_server            # with MuJoCo viewer
-python3 -m sim_server --no-gui   # headless
+bash service-agent-setup/probe_pipeline.sh
 ```
 
-**Or ManiSkill sim server:**
-```bash
-cd ~/tidybot_uni/sims/maniskill
-python3 -m maniskill_server --gui   # with viewer
-python3 -m maniskill_server         # headless
-```
-
-**Terminal 2 — Agent server:**
-```bash
-cd ~/tidybot_uni/agent_server
-python3 server.py --no-service-manager
-```
-
-API is then at `http://localhost:8080` — same endpoints, SDK, and lease system as hardware.
-
-**Sim CLI options:**
-```
---task NAME          Scene/env (default: BananaTestKitchen)
---robot NAME         Robot model (default: TidyVerse)
---layout N           Kitchen layout ID (default: 1)
---style N            Kitchen style ID (default: 1)
---no-gui             Headless (no MuJoCo viewer)
---no-base-bridge     Disable individual bridges
---no-franka-bridge
---no-gripper-bridge
---no-camera-bridge
-```
-
-**Sim bridge ports** (same as hardware — agent_server doesn't know the difference):
-
-| Bridge | Protocol | Port(s) |
-|--------|----------|---------|
-| Base | RPC | 50000 |
-| Franka arm | ZMQ (msgpack) | 5555, 5556, 5557 |
-| Gripper | ZMQ (JSON) | 5570, 5571 |
-| Camera | WebSocket (JPEG) | 5580 |
-
-**First-time setup (Robocasa):** `cd robocasa_sim && ./setup.sh` (clones robocasa/robosuite, installs deps, patches TidyVerse assets). Kitchen assets (~10 GB) are downloaded separately during setup.
-
-**Env vars:** `PYTHONUNBUFFERED=1` for real-time logs. If system python lacks packages: `PYTHONPATH="$HOME/.local/lib/python3.10/site-packages:$PYTHONPATH"`.
-
-## Rewind System (Trajectory Reversal)
-
-The rewind system enables error recovery by replaying the robot's trajectory in reverse. It coordinates base and arm movements together using recorded waypoints.
-
-- **Recording:** StateAggregator records unified waypoints at 10 Hz (threshold-filtered)
-- **Execution:** RewindOrchestrator groups waypoints into chunks, interpolates arm (cubic) and base (linear + Ruckig) at 50 Hz
-- **SDK:** Available in code execution as `from robot_sdk import rewind`
-- **API:** Full REST API at `/rewind/*` (see `agent_server/CLAUDE.md`)
-- **Config:** Tune `chunk_size`, `chunk_duration` online via `PUT /rewind/config`
-
-### Key Files
-
-| File | Description |
-|------|-------------|
-| `system_logger/system_logger/waypoint.py` | UnifiedWaypoint dataclass |
-| `system_logger/system_logger/logger.py` | SystemLogger (trajectory recording) |
-| `system_logger/system_logger/rewind_orchestrator.py` | RewindOrchestrator (execution) |
-| `system_logger/system_logger/config.py` | LoggerConfig, RewindConfig, WorkspaceBounds |
-
-## Error Recovery
-
-### Robot in Reflex Mode
-
-If the arm enters error state (collision, etc.):
-
-```bash
-cd ~/tidybot_uni/hardware/arm_server/franka_server
-./recover.sh --ip 172.16.0.2
-```
-
-Then restart services (Ctrl+C `start_robot.sh` and re-run, or restart via service manager).
-
-### Rewind
-
-Use rewind to replay trajectory backwards and escape collisions:
-
-```bash
-LEASE=$(curl -s -X POST localhost:8080/lease/acquire \
-  -H "Content-Type: application/json" \
-  -d '{"holder": "recovery"}' | jq -r '.lease_id')
-
-curl -X POST localhost:8080/rewind/percentage \
-  -H "X-Lease-Id: $LEASE" \
-  -H "Content-Type: application/json" \
-  -d '{"percentage": 10.0}'
-```
-
-## OpenClaw Integration
-
-OpenClaw is an AI agent platform that can control the robot. Integration uses auto-generated documentation endpoints — the agent reads the system guide and SDK reference, then writes direct HTTP calls.
-
-```
-OpenClaw Agent → GET /docs/guide + /code/sdk → Writes requests.get()/post() → agent_server → Hardware
-```
-
-## Environment Variables
-
-| Variable | Description |
-|----------|-------------|
-| `FRANKA_DESK_USERNAME` | Franka Desk login username |
-| `FRANKA_DESK_PASSWORD` | Franka Desk login password |
-| `FRANKA_IP` | Robot IP (default: 172.16.0.2) |
-| `ROBOT_API_KEY` | API key for agent server auth — set to an admin key from `agent_server/api_keys.json`. Forwarded to SDK subprocesses. Auth disabled when unset. |
-
-## Ports
+## Ports (sim + hardware identical)
 
 | Port | Service | Bind |
 |------|---------|------|
-| 8080 | Agent server (HTTP/WebSocket) | 0.0.0.0 (public) |
-| 50000 | Base server (RPC) | localhost |
-| 5555 | Franka server (ZMQ commands) | localhost |
-| 5556 | Franka server (ZMQ state) | localhost |
-| 5557 | Franka server (ZMQ stream) | localhost |
-| 5570 | Gripper server (ZMQ commands) | localhost |
-| 5571 | Gripper server (ZMQ state) | localhost |
-| 5580 | Camera server (WebSocket) | localhost |
-| 5590 | Mocap server (TCP) | localhost |
+| 8080 | Agent server | 0.0.0.0 |
+| 50000 | Base RPC | localhost |
+| 5500 | Sim HTTP API (sim only) | localhost |
+| 5555 | Franka ZMQ commands | localhost |
+| 5556 | Franka ZMQ state pub | localhost |
+| 5557 | Franka ZMQ stream | localhost |
+| 5570 | Gripper ZMQ commands | localhost |
+| 5571 | Gripper ZMQ state | localhost |
+| 5580 | Camera WebSocket | localhost |
+| 5590 | Mocap TCP | localhost |
+| 7000 | cuRobo service (standalone v0.8) | localhost |
+| 8090 | Service catalog (SSH scanner, currently inactive) | localhost |
+| 9000 | Deploy-agent daemon | per-host |
+| 8765 / 8766 | Orchestrator WebSocket / HTTP | 0.0.0.0 |
+| 8070 | Dashboard | 0.0.0.0 |
+
+## Required Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `FRANKA_DESK_USERNAME` / `_PASSWORD` | Franka Desk login (real hardware only) |
+| `FRANKA_IP` | Robot IP (default: 172.16.0.2) |
+| `ROBOT_API_KEY` | Agent server auth (from `agent_server/api_keys.json`). Auth disabled when unset. |
+| `LITELLM_KEY` | Set via `~/bin/with-litellm.sh` from `~/.litellm-key` (chmod 600). Never echo. |
+| `CUROBO_SERVICE_URL` | cuRobo standalone service (default: `http://localhost:7000`) |
+| `GRASPGEN_SERVER_URL` | Remote GraspGen service (e.g. `http://10.102.245.84:8006`) |
+
+## Related Top-Level Docs
+
+- `README.md` — project README
+- `setup.sh` — one-command setup
+- `skill-agent-setup/README.md` — agent setup modes (standalone chat vs orchestrator harness)
+- `skill-agent-setup/claude-code/CLAUDE.md` — orchestrator-specific dev/planner instructions
+- `skill-agent-setup/claude-code/CLAUDE-OPENCLAW-HARNESS.md` — `--harness openclaw` setup walkthrough
+- `service-agent-setup/docs/DEPLOY_AGENT_SPEC.md` — deploy-agent API spec
